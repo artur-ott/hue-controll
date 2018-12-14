@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title></title>
+	<meta name="viewport" content="minimal-ui, width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<script>
+		//#region WebSocket
+		let connection = new WebSocket('ws://192.168.0.33/');
+		function send(obj) {
+		  connection.send(JSON.stringify(obj));
+		}
+
+		function ping() {
+		  send({}); // Send the message 'Ping' to the server
+		}
+		
+		connection.onopen = () => {
+			setInterval(ping, 5000);
+		};
+		
+		// Log errors
+		connection.onerror = (error) => {
+		  console.log('WebSocket Error ' + error);
+		};
+
+		// Log messages from the server
+		connection.onmessage = (message) => {
+			if (message.type === 'message') {
+				parseData(JSON.parse(message.data));
+			}
+		};
+		//#endregion
+
+		//#region Parse data
+		let bridges = [],
+			config,
+			lightStates = {};
+		function parseData(packet) {
+			if (packet.key === undefined) return;
+			console.log(packet);
+			switch (packet.key) {
+				case 'discover':
+					respDiscover(packet.data);
+				break;
+				case 'config':
+				console.log('Config:', packet.data);
+				break;
+				case 'lights':
+					respLights(packet.data);
+				break;
+				case 'light-state':
+					respLightState(packet.data);
+				break;
+				default:
+					console.error(`No command "${packet.key}" found!`);
+			}
+		}
+
+		function respDiscover(data) {
+			bridges = data;
+			let bridgesSelect = document.getElementById('bridges');
+			bridges.forEach((bridge, i) => {
+				bridgesSelect.appendChild((() => {
+					let option = document.createElement('option');
+					option.value = bridge.id;
+					option.text = `${bridge.id} - ${bridge.internalipaddress} - ${bridge.name}`;
+					return option;
+				})());
+			});
+		}
+
+		function respLights(data) {
+			let lights = document.getElementById('lights');
+			lights.innerHTML = '';
+			Object.keys(data).forEach(id => {
+				lights.appendChild((() => {
+					let lightHtml = document.createElement('div');
+					lightHtml.innerHTML = document.getElementById('light-template').innerHTML;
+					lightHtml.id = `light-${id}`;
+					lightHtml.style.border = '1px solid #999';
+					lightHtml.style.padding = '5px';
+					lightHtml.style.display = 'table';
+					lightHtml.style.marginTop = '2px';
+					lightHtml.style.marginBottom = '2px';
+					return lightHtml;
+				})());
+				lightState(id);
+			});
+		}
+
+		function respLightState(data) {
+			lightStates[data.id] = {};
+			lightStates[data.id].on = data.state.on;
+			lightStates[data.id].bri = data.state.bri;
+			lightStates[data.id].hue = data.state.hue;
+			lightStates[data.id].sat = data.state.sat;
+			let light = document.getElementById(`light-${data.id}`);
+			light.getElementsByClassName('name')[0].textContent = data.name;
+			[].slice.call(light.getElementsByTagName('input')).forEach(input => {
+				input.className = `light-${data.id}`;
+			});
+			light.getElementsByClassName('on')[0].getElementsByTagName('input')[0].checked = data.state.on;
+			light.getElementsByClassName('brightness')[0].getElementsByTagName('input')[0].value = `${data.state.bri}`;
+			light.getElementsByClassName('sat')[0].getElementsByTagName('input')[0].value = `${data.state.sat}`;
+			light.getElementsByClassName('hue')[0].getElementsByTagName('input')[0].value = `${data.state.hue}`;
+		}
+		//#endregion
+
+		//#region Event Functions
+		function discover() {
+			send({
+				key: "discover"
+			});
+		}
+
+		function username(input) {
+			send({
+				key: "username",
+				data: input.value
+			});
+		}
+
+		function bridgeChanged(select) {
+			send({
+				key: "bridge",
+				data: select.value
+			});
+		}
+
+		function lightState(id) {
+			send({
+				key: "light-state",
+				data: id
+			});
+		}
+
+		function changeOn(input) {
+			let id = input.className.substring(6);
+			lightStates[id].on = input.checked;
+			send({
+				key: "light-state-on",
+				data: {
+					id,
+					value: input.checked
+				}
+			});
+		}
+
+		function changeBrightness(input) {
+			let id = input.className.substring(6);
+			if (!lightStates[id].on) {
+				input.value = lightStates[id].bri;
+				return;
+			}
+			lightStates[id].bri = input.value;
+			send({
+				key: "light-state-brightness",
+				data: {
+					id,
+					value: input.value
+				}
+			});
+		}
+
+		function changeHue(input) {
+			let id = input.className.substring(6);
+			if (!lightStates[id].on) {
+				input.value = lightStates[id].hue;
+				return;
+			}
+			lightStates[id].hue = input.value;
+			send({
+				key: "light-state-hue",
+				data: {
+					id,
+					value: input.value
+				}
+			});
+		}
+
+		function changeSat(input) {
+			let id = input.className.substring(6);
+			if (!lightStates[id].on) {
+				input.value = lightStates[id].sat;
+				return;
+			}
+			lightStates[id].sat = input.value;
+			send({
+				key: "light-state-sat",
+				data: {
+					id,
+					value: input.value
+				}
+			});
+		}
+
+		function shuffle(input) {
+			let id = input.className.substring(6);
+			send({
+				key: "light-state-shuffle",
+				data: id
+			});
+		}
+
+		function changeLocation(input) {
+			let id = input.className.substring(6);
+			send({
+				key: "location-changed",
+				data: {
+					id,
+					location: input.value
+				}
+			});
+		}
+
+		function changeWeatherNotification(input) {
+			let id = input.className.substring(6);
+			send({
+				key: "location-weather-notification",
+				data: {
+					id,
+					notification: input.checked
+				}
+			});
+		}
+		//#endregion
+	</script>
+	<style>
+		.hue {
+			background: url('https://i.ibb.co/G7ZjPnR/hue.png');
+			background-size: contain;
+			padding: 0;
+			display: flex;
+			justify-content: center;
+			flex-direction: column;
+		}
+		.hue input {
+			width: 200px;
+			padding: 0;
+			margin: 0;
+			-webkit-appearance: none; /* Override default look */
+			appearance: none;
+			background: transparent;
+		}
+		.hue input::-webkit-slider-thumb {
+				-webkit-appearance: none; /* Override default look */
+				appearance: none;
+				border-radius: 5px;
+				border: 1px solid #000;
+				width: 10px; /* Set a specific slider handle width */
+				height: 25px; /* Slider handle height */
+				background: transparent; /* Green background */
+				cursor: pointer; /* Cursor on hover */
+				box-shadow: 0 0 1px #FFF;
+		}
+		.hue input::-moz-range-thumb {
+				width: 10px; /* Set a specific slider handle width */
+				height: 25px; /* Slider handle height */
+				border-radius: 5px;
+				border: 1px solid #000;
+				background: transparent; /* Green background */
+				cursor: pointer; /* Cursor on hover */
+				box-shadow: 0 0 1px #FFF;
+		}
+	</style>
+</head>
+<body>
+	<div class="username">
+		<label for="username">Username:</label>
+		<input id="username" name="username" onchange="username(this)" />
+	</div>
+	<div class="discover">
+		<button onclick="discover();">Discover</button>
+		<select id="bridges" onchange="bridgeChanged(this);">
+			<option value="-1">-</option>
+		</select>
+	</div>
+	<div style="display: block; padding: 5px;" id="lights"></div>
+	<div style="display: block;" id="light-template">
+		<table style="border-collapse: collapse">
+			<tbody>
+				<tr>
+					<td>Name:</td>
+					<td class="name">$name</td>
+				</tr>
+				<tr>
+					<td>Turned on:</td>
+					<td class="on"><input type="checkbox" name="on" onchange="changeOn(this)" /></td>
+				</tr>
+				<tr>
+					<td>Brightness:</td>
+					<td class="brightness"><input type="range" min="0" max="255" name="brightness" onchange="changeBrightness(this)" /></td>
+				</tr>
+				<tr>
+					<td>Saturation:</td>
+					<td class="sat"><input type="range" min="0" max="255" name="sat" onchange="changeSat(this)" /></td>
+				</tr>
+				<tr style="border-bottom: 2px solid #000;">
+					<td>Hue:</td>
+					<td class="hue"><input type="range" min="0" max="65535" name="hue" onchange="changeHue(this)" /></td>
+					<td style="padding-bottom: 10px;"><input type="button" value="Shuffle" onclick="shuffle(this)" /></td>
+				</tr>
+				<tr>
+					<td style="padding-top: 10px;">Wetterbenachrichtigungen:</td>
+					<td style="padding-top: 10px;" class="weather-notification"><input type="checkbox" name="weather-notification" onchange="changeWeatherNotification(this)" /></td>
+				</tr>
+				<tr>
+					<td>Ort:</td>
+					<td class="location"><input type="text" name="location" onchange="changeLocation(this)" /></td>
+				</tr>
+			</tbody>
+		</table>
+	</div>
+</body>
+</html>
